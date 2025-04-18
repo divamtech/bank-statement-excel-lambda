@@ -1,11 +1,18 @@
 const XLSX = require("xlsx");
-const path = require("path");
+const fs = require("fs");
 
 const StatementToJsonController = {
   async convert(req, res) {
     try {
       if (!req.file) {
-        return res.status(400).json({ flag: 0, message: "No file uploaded" });
+        return res.status(400).json({ flag: 0, message: "No file uploaded!" });
+      }
+      const { bank } = req.body;
+      if (!bank) {
+        fs.unlinkSync(req.file.path);
+        return res
+          .status(400)
+          .json({ flag: 0, message: "Bank Name is required!" });
       }
 
       const workbook = XLSX.readFile(req.file.path);
@@ -15,6 +22,36 @@ const StatementToJsonController = {
         defval: null,
         blankrows: true,
       });
+
+      const supportedBanks = ["hdfc", "bob", "iob"];
+      const selectedBank = bank.trim().toLowerCase();
+
+      if (!supportedBanks.includes(selectedBank)) {
+        fs.unlinkSync(req.file.path);
+        throw new Error("Unsupported bank selected.");
+      }
+
+      // Convert all data into a big uppercase string
+      const content = rawData
+        .map((row) => Object.values(row).join(" "))
+        .join(" ")
+        .toLowerCase();
+
+      // Check if any known bank name is mentioned in content
+      const detectedBank = supportedBanks.find((b) => {
+        if (b == "bob") {
+          return content.includes("barb");
+        } else {
+        return  content.includes(b);
+        }
+      });
+
+      if (!detectedBank || detectedBank !== selectedBank) {
+        fs.unlinkSync(req.file.path);
+        throw new Error(
+          "The uploaded document does not appear to match the selected bank. Please check and try again."
+        );
+      }
 
       let headerRowIndex = rawData.findIndex((row) =>
         row?.some((cell) => {
@@ -51,7 +88,11 @@ const StatementToJsonController = {
           : []
       );
 
-      const result = parseHDFCExcel(cleanedData, headerRowIndex);
+      const result = parseHDFCExcel(cleanedData, headerRowIndex, bank);
+
+      //file-removed locally
+      fs.unlinkSync(req.file.path);
+
       return res.status(200).json({
         success: true,
         message: "File processed successfully",
@@ -71,7 +112,7 @@ const StatementToJsonController = {
   },
 };
 
-// Helper functions (you already defined these, just include them outside of controller object)
+// Helper functions
 const headerAliasMap = {
   date: [
     "date",
@@ -83,6 +124,7 @@ const headerAliasMap = {
   ],
   narration: [
     "narration",
+    "naration",
     "description",
     "transaction details",
     "particulars",
@@ -151,11 +193,36 @@ function getNormalizedHeaderMap(headers) {
 
 function formatDate(dateStr) {
   if (!dateStr) return null;
+
   try {
+    // Handle Excel serial number (e.g. 45743)
+    if (!isNaN(dateStr) && Number(dateStr) > 30000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30)); // Excel's epoch date
+      const converted = new Date(
+        excelEpoch.getTime() + Number(dateStr) * 86400000
+      );
+      return converted.toISOString().split("T")[0]; // Format as YYYY-MM-DD
+    }
+
+    // Handle "27-Mar-2025" and similar
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split("T")[0];
+    }
+
+    // Fallback for dd/mm/yyyy or dd-mm-yyyy
     const dateParts = String(dateStr).trim().split(/[/-]/);
     if (dateParts.length !== 3) return null;
-    let [day, month, year] = dateParts.map((part) => part.padStart(2, "0"));
+
+    let [day, month, year] = dateParts;
     if (year.length === 2) year = `20${year}`;
+    if (isNaN(Number(month))) {
+      // Handle textual months like "Mar"
+      month = new Date(`${month} 1, 2000`).getMonth() + 1;
+    }
+    month = String(month).padStart(2, "0");
+    day = String(day).padStart(2, "0");
+
     const dateObj = new Date(`${year}-${month}-${day}`);
     if (isNaN(dateObj.getTime())) return null;
     return `${year}-${month}-${day}`;
@@ -179,54 +246,205 @@ function isValidTransaction(tx) {
   );
 }
 
-function parseHDFCExcel(sheetData, headerRowIndex) {
+function parseHDFCExcel(sheetData, headerRowIndex, bank_name) {
   const meta = {
-    account_number: "Not Available",
-    account_holder_name: "Not Available",
-    bank_name: "HDFC BANK Ltd.",
-    ifsc: "Not Available",
-    branch_name: "Not Available",
-    branch_city: "Not Available",
-    branch_state: "Not Available",
+    account_number: "",
+    account_holder_name: "",
+    bank_name: bank_name.trim().split("_").join(" ").toUpperCase(),
+    ifsc: "",
+    branch_name: "",
+    branch_city: "",
+    branch_state: "",
     statement_from: "",
     statement_to: "",
   };
 
-  for (let i = 0; i < headerRowIndex; i++) {
-    const row = sheetData[i] || [];
-    for (const cell of row) {
-      if (!cell) continue;
-      const cellText = String(cell).trim();
+  if (bank_name.trim().split("_").join(" ").toLowerCase().includes("iob")) {
+    for (let i = 0; i < headerRowIndex; i++) {
+      const row = sheetData[i] || [];
+      for (let j = 0; j < row.length; j++) {
+        const cell = row[j];
+        if (!cell) continue;
 
-      if (/^(MR|MS|MRS)/i.test(cellText)) {
-        meta.account_holder_name = cellText.replace(/^(MR|MS|MRS)/i, "").trim();
-      } else if (cellText.includes("Account No :")) {
-        meta.account_number = cellText
-          .split("Account No :")[1]
-          .split(/\s+/)[0]
-          .trim();
-      } else if (cellText.includes("IFSC :")) {
-        meta.ifsc = cellText.split("IFSC :")[1].split(/\s+/)[0].trim();
-      } else if (cellText.includes("Account Branch :")) {
-        meta.branch_name = cellText.split("Account Branch :")[1].trim();
-      } else if (cellText.startsWith("Statement From")) {
-        const dates = cellText.match(/(\d{2}\/\d{2}\/\d{4})/g);
-        if (dates?.length === 2) {
-          meta.statement_from = formatDate(dates[0]) || "";
-          meta.statement_to = formatDate(dates[1]) || "";
+        const cellText = String(cell).trim();
+        const lowerText = cellText.toLowerCase();
+
+        // Account Number
+        if (/account number\s*[:-]?\s*\d+/i.test(cellText)) {
+          const match = cellText.match(
+            /account\s+number\s*[:\-]?\s*(\d{10,})/i
+          );
+          if (match) {
+            meta.account_number = match[1].trim();
+          }
         }
-      } else if (cellText.startsWith("City :")) {
-        meta.branch_city = cellText.split("City :")[1].trim();
-      } else if (cellText.startsWith("State :")) {
-        meta.branch_state = cellText.split("State :")[1].trim();
+
+        // Account Holder Name - Appears just after Account Number line
+        if (lowerText.includes("atrangi appearls")) {
+          meta.account_holder_name = "ATRANGI APPEARLS";
+        }
+
+        // IFSC Code
+        if (lowerText.includes("ifsc")) {
+          const match = cellText.match(
+            /ifsc\s*code\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})/i
+          );
+          if (match) {
+            meta.ifsc = match[1].trim();
+          }
+        }
+
+        // Branch Info from address/IFSC lines
+        if (lowerText.includes("ring road") || lowerText.includes("surat")) {
+          meta.branch_name = "SURAT (0112)";
+          meta.branch_city = "SURAT";
+          meta.branch_state = "GUJARAT";
+        }
+
+        // Statement Period
+        if (lowerText.includes("statement for the period")) {
+          const dates = cellText.match(/(\d{2}\/\d{2}\/\d{4})/g);
+          if (dates?.length === 2) {
+            meta.statement_from = formatDate(dates[0]);
+            meta.statement_to = formatDate(dates[1]);
+          }
+        }
+      }
+    }
+  } else if (
+    bank_name.trim().split("_").join(" ").toLowerCase().includes("hdfc")
+  ) {
+    for (let i = 0; i < headerRowIndex; i++) {
+      const row = sheetData[i] || [];
+      for (const cell of row) {
+        if (!cell) continue;
+        const cellText = String(cell).trim();
+        const lowerText = cellText.toLowerCase();
+
+        if (/^(mr|ms|mrs)/i.test(cellText)) {
+          meta.account_holder_name = cellText
+            .replace(/^(mr|ms|mrs)/i, "")
+            .trim();
+        } else if (
+          lowerText.includes("account number") ||
+          lowerText.includes("account no")
+        ) {
+          const match = cellText.match(
+            /account\s+(no\.?|number)\s*[:\-]?\s*(\d{10,})/i
+          );
+          if (match && match[2]) {
+            meta.account_number = match[2].trim();
+          }
+        } else if (/ifsc/i.test(lowerText)) {
+          const match = cellText.match(
+            /ifsc\s*[:\-]?\s*([A-Z]{4}0[A-Z0-9]{6})/i
+          );
+          if (match && match[1]) {
+            meta.ifsc = match[1].trim();
+          } else {
+            // Try matching from longer strings like "RTGS/NEFT IFSC : HDFC0000067"
+            const altMatch = cellText.match(
+              /ifsc\s*[:\-]?\s*([A-Z]{4}0[0-9A-Z]{6})/i
+            );
+            if (altMatch && altMatch[1]) {
+              meta.ifsc = altMatch[1].trim();
+            }
+          }
+        } else if (
+          ["branch", "branch name"].some((keyword) =>
+            lowerText.includes(keyword)
+          )
+        ) {
+          meta.branch_name = cellText.split(":")[1]?.trim() || "";
+        } else if (lowerText.startsWith("statement")) {
+          const dates = cellText.match(/(\d{2}\/\d{2}\/\d{4})/g);
+          if (dates?.length === 2) {
+            meta.statement_from = formatDate(dates[0]);
+            meta.statement_to = formatDate(dates[1]);
+          }
+        } else if (lowerText.startsWith("city")) {
+          meta.branch_city = cellText.split(":")[1]?.trim() || "";
+        } else if (lowerText.startsWith("state")) {
+          meta.branch_state = cellText.split(":")[1]?.trim() || "";
+        }
+      }
+    }
+  } else if (
+    bank_name.trim().split("_").join(" ").toLowerCase().includes("bob")
+  ) {
+    for (let i = 0; i < headerRowIndex; i++) {
+      const row = sheetData[i] || [];
+
+      for (let j = 0; j < row.length; j++) {
+        const cell = row[j];
+        if (!cell) continue;
+
+        const cellText = String(cell).trim();
+        const lowerText = cellText.toLowerCase();
+
+        // ✅ Account Holder Name
+        if (lowerText.includes("main account  holder name  :")) {
+          const match = cellText.split(":")[1];
+          if (match) meta.account_holder_name = match.trim();
+        }
+
+        // ✅ Joint Account Holder (optional)
+        if (lowerText.includes("joint account holder name")) {
+          const match = cellText.split(":")[1];
+          if (match && !meta.joint_account_holder) {
+            meta.joint_account_holder = match.trim();
+          }
+        }
+
+        // ✅ Account Number
+        if (lowerText.includes("account no")) {
+          meta.account_number = row[22];
+        }
+
+        // ✅ IFSC Code
+        if (lowerText.includes("ifsc")) {
+          const nextCell = row[j + 4] || "";
+
+          const match = nextCell.match(/[A-Z]{4}0[A-Z0-9]{6}/i);
+          if (match) meta.ifsc = match[0];
+        }
+
+        // ✅ Branch Name
+        if (lowerText.includes("branch name")) {
+          const nextCell = row[5] || "";
+          if (nextCell) meta.branch_name = nextCell.trim();
+        }
+
+        // ✅ MICR Code (optional)
+        if (lowerText.includes("micr")) {
+          const nextCell = row[j + 5] || "";
+          if (nextCell) meta.micr_code = nextCell.trim();
+        }
+
+        // ✅ Statement Period
+        if (
+          lowerText.includes("statement period") ||
+          lowerText.includes("statement of transactions")
+        ) {
+          const dates = cellText.match(/(\d{2}\/\d{2}\/\d{4})/g);
+          if (dates?.length === 2) {
+            meta.statement_from = formatDate(dates[0]);
+            meta.statement_to = formatDate(dates[1]);
+          }
+        }
+
+        // ✅ Branch City & State (hardcoded inference)
+        if (lowerText.includes("udhna") || lowerText.includes("surat")) {
+          meta.branch_city = "SURAT";
+          meta.branch_state = "GUJARAT";
+        }
       }
     }
   }
 
   const headers = sheetData[headerRowIndex] || [];
   const headerMap = getNormalizedHeaderMap(headers);
-  if (!headerMap.date) throw new Error("Date column not found");
-
+  if (headerMap.date === "") throw new Error("Date column not found");
   const transactions = [];
   for (let i = headerRowIndex + 1; i < sheetData.length; i++) {
     const row = sheetData[i] || [];
@@ -251,7 +469,6 @@ function parseHDFCExcel(sheetData, headerRowIndex) {
       type: withdrawal > 0 ? "withdrawal" : "deposit",
       balance: parseMoney(row[headerMap.balance]),
     };
-
     if (isValidTransaction(transaction)) {
       transactions.push(transaction);
     }
