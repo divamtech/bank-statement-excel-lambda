@@ -1,21 +1,27 @@
 const XLSX = require("xlsx");
-const fs = require("fs");
+const axios = require("axios");
 
 const StatementToJsonController = {
   async convert(req, res) {
     try {
-      if (!req.file) {
-        return res.status(400).json({ flag: 0, message: "No file uploaded!" });
-      }
-      const { bank } = req.body;
+      const { bank, resource_url } = req.body;
       if (!bank) {
-        fs.unlinkSync(req.file.path);
         return res
           .status(400)
           .json({ flag: 0, message: "Bank Name is required!" });
       }
 
-      const workbook = XLSX.readFile(req.file.path);
+      const signedUrl =
+        resource_url ||
+        "https://webledger-assets-books-dev.s3.ap-south-1.amazonaws.com/try_export/HDFC_BANK_Statement.xls";
+
+      const response = await axios.get(signedUrl, {
+        responseType: "arraybuffer",
+      });
+      const workbook = XLSX.read(response.data, {
+        cellDates: true,
+        dateNF: 'd"/"m"/"yyyy',
+      });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const rawData = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
@@ -27,7 +33,7 @@ const StatementToJsonController = {
       const selectedBank = bank.trim().toLowerCase();
 
       if (!supportedBanks.includes(selectedBank)) {
-        fs.unlinkSync(req.file.path);
+        // fs.unlinkSync(req.file.path);
         throw new Error("Unsupported bank selected.");
       }
 
@@ -42,12 +48,12 @@ const StatementToJsonController = {
         if (b == "bob") {
           return content.includes("barb");
         } else {
-        return  content.includes(b);
+          return content.includes(b);
         }
       });
 
       if (!detectedBank || detectedBank !== selectedBank) {
-        fs.unlinkSync(req.file.path);
+        // fs.unlinkSync(req.file.path);
         throw new Error(
           "The uploaded document does not appear to match the selected bank. Please check and try again."
         );
@@ -89,9 +95,6 @@ const StatementToJsonController = {
       );
 
       const result = parseHDFCExcel(cleanedData, headerRowIndex, bank);
-
-      //file-removed locally
-      fs.unlinkSync(req.file.path);
 
       return res.status(200).json({
         success: true,

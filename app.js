@@ -1,6 +1,5 @@
 require("dotenv").config();
 const express = require("express");
-const Upload = require('./utils/Upload.js');
 const StatementToJsonController = require('./controller/statementToJson.controller.js');
 const app = express();
 
@@ -10,7 +9,6 @@ app.use(express.json());
 // Route
 app.post(
   "/api/bank_statement_processor",
-  Upload.single("resource_url"),
   StatementToJsonController.convert
 );
 
