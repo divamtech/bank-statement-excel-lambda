@@ -19,4 +19,4 @@ jobs:
       - name: deploy
         run: |
           zip -j deploy.zip src/*
-          aws lambda update-function-code --function-name=pdf-to-s3 --zip-file=fileb://deploy.zip
+          aws lambda update-function-code --function-name=bank-excel-process-lambda --zip-file=fileb://deploy.zip
