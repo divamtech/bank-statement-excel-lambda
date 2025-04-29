@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const StatementToJsonController = require('./controller/statementToJson.controller.js');
 const app = express();
+const serverless = require('serverless-http')
 
 // Middleware
 app.use(express.json());
@@ -30,3 +31,9 @@ app.use((err, req, res, next) => {
 app.listen(process.env.PORT || 3000, () => {
   console.log(`Server running on port ${process.env.PORT || 3000}`);
 });
+
+const handler = serverless(app)
+
+module.exports = async (event, context, callback) => {
+  return await handler(event, context, callback)
+}

@@ -1,19 +1,46 @@
 const XLSX = require("xlsx");
 const axios = require("axios");
+const BankENUM = require("../BANK");
+const { SQSClient, SendMessageCommand } = require("@aws-sdk/client-sqs");
+const sqsClient = new SQSClient({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
+async function pushSQS(bank, resource_url) {
+    const params = {
+      QueueUrl: process.env.SQS_URL,
+      MessageBody: JSON.stringify({
+        bank: bank,
+        resource_url: resource_url,
+        timestamp: Date.now()
+      })
+    };
+
+    return await sqsClient.send(new SendMessageCommand(params));
+  }
+
 
 const StatementToJsonController = {
   async convert(req, res) {
     try {
       const { bank, resource_url } = req.body;
-      if (!bank) {
+      if(!Object.values(BankENUM).includes(bank)) {
+        await pushSQS(bank, resource_url)
         return res
           .status(400)
-          .json({ flag: 0, message: "Bank Name is required!" });
+          .json({ flag: 0, message: "BANK_NOT_FOUND" });
+      }
+      if (!bank && !resource_url) {
+        return res
+          .status(400)
+          .json({ flag: 0, message: "Bank Name and Resource URL is required!" });
       }
 
-      const signedUrl =
-        resource_url ||
-        "https://webledger-assets-books-dev.s3.ap-south-1.amazonaws.com/try_export/HDFC_BANK_Statement.xls";
+      const signedUrl = resource_url
 
       const response = await axios.get(signedUrl, {
         responseType: "arraybuffer",
