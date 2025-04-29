@@ -18,5 +18,5 @@ jobs:
           aws-secret-access-key: ${{ secrets.GH_PUSH_AWS_SECRET_ACCESS_KEY }}
       - name: deploy
         run: |
-          zip -r deploy.zip src
+          zip -r deploy.zip src/*
           aws lambda update-function-code --function-name=bank-excel-process-lambda --zip-file=fileb://deploy.zip
