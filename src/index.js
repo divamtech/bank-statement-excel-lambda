@@ -34,6 +34,7 @@ app.listen(process.env.PORT || 3000, () => {
 
 const handler = serverless(app)
 
-module.exports = async (event, context, callback) => {
-  return await handler(event, context, callback)
+exports.handler = async (event, context, callback) => {
+  const response = await handler(event, context, callback)
+  return response
 }
