@@ -6,7 +6,7 @@
  */
 function processBankStatement(rawData) {
   // Use the new extraction function for array-of-arrays input
-  const bank_details = extractBankDetailsFromRows(rawData);
+  const bank_details = extractBankDetailsFromRows(rawData)
   const transactions = []
   let headerRowIndex = -1
   const maxBankDetailsRows = Math.min(20, rawData.length)
@@ -37,7 +37,7 @@ function processBankStatement(rawData) {
     ]
 
     for (const dateFormat of dateFormats) {
-      const match = dateString.match(dateFormat.format)
+      const match = dateString?.match(dateFormat.format)
       if (match) {
         let year = match[dateFormat.order[2]]
         if (year.length === 2) {
@@ -188,13 +188,14 @@ function processBankStatement(rawData) {
     const row = rawData[i]
     if (!row) continue
 
-    const dateString = row[keyMap.dateKey]
+    // Check if date is null, then set row index to 1 for setting date
+    const dateString = row[keyMap.dateKey] ? row[keyMap.dateKey] : row['1']
     const desc = row[keyMap.narrationKey] ? String(row[keyMap.narrationKey]).trim() : null
     const debitString = row[keyMap.debitKey]
     const creditString = row[keyMap.creditKey]
     const balanceString = row[keyMap.balanceKey]
 
-    const date = parseDate(dateString)
+    const date = dateString
     const debit = cleanAmount(debitString)
     const credit = cleanAmount(creditString)
     const balance = cleanAmount(balanceString)
@@ -249,60 +250,60 @@ function extractBankDetailsFromRows(rows) {
     account_holder_name: null,
     branch_name: null,
     branch_code: null,
-  };
+  }
 
   for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
+    const row = rows[i]
     for (let j = 0; j < row.length; j++) {
-      const cell = row[j];
-      if (!cell) continue;
-      const value = String(cell).trim();
+      const cell = row[j]
+      if (!cell) continue
+      const value = String(cell).trim()
 
       if (value.toLowerCase().includes('account holder name')) {
-        const afterColon = value.split(':')[1];
+        const afterColon = value.split(':')[1]
         if (afterColon && afterColon.trim()) {
-          bank_details.account_holder_name = afterColon.trim();
+          bank_details.account_holder_name = afterColon.trim()
         } else {
           for (let k = j + 1; k < row.length; k++) {
             if (row[k]) {
-              bank_details.account_holder_name = String(row[k]).trim();
-              break;
+              bank_details.account_holder_name = String(row[k]).trim()
+              break
             }
           }
         }
       } else if (value.toLowerCase().includes('branch name')) {
-        const afterColon = value.split(':')[1];
+        const afterColon = value.split(':')[1]
         if (afterColon && afterColon.trim()) {
-          bank_details.branch_name = afterColon.trim();
+          bank_details.branch_name = afterColon.trim()
         } else {
           for (let k = j + 1; k < row.length; k++) {
             if (row[k]) {
-              bank_details.branch_name = String(row[k]).trim();
-              break;
+              bank_details.branch_name = String(row[k]).trim()
+              break
             }
           }
         }
       } else if (value.toLowerCase().includes('ifsc')) {
-        const afterColon = value.split(':')[1];
+        const afterColon = value.split(':')[1]
         if (afterColon && afterColon.trim()) {
-          bank_details.ifsc = afterColon.trim();
+          bank_details.ifsc = afterColon.trim()
         } else {
           for (let k = j + 1; k < row.length; k++) {
             if (row[k]) {
-              bank_details.ifsc = String(row[k]).trim();
-              break;
+              bank_details.ifsc = String(row[k]).trim()
+              break
             }
           }
         }
       } else if (value.toLowerCase().includes('address')) {
-        const afterColon = value.split(':')[1];
+        const afterColon = value.split(':')[1]
         if (afterColon && afterColon.trim()) {
-          bank_details.address = afterColon.trim();
+          bank_details.address = afterColon.trim()
         } else {
           for (let k = j + 1; k < row.length; k++) {
             if (row[k]) {
-              bank_details.address = String(row[k]).trim();
-              break;
+              bank_details.address = String(row[k]).trim()
+              break
             }
           }
         }
@@ -310,7 +311,7 @@ function extractBankDetailsFromRows(rows) {
       // Add more fields as needed...
     }
   }
-  return bank_details;
+  return bank_details
 }
 
 module.exports = processBankStatement
