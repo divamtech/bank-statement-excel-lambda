@@ -8,7 +8,7 @@ const BANK = {
     SBI: "sbi",
     YES: "yes",
     OVERSEASE: "oversease",
-    
+    KOTAK: "kotak",
 }
 
 module.exports = BANK;

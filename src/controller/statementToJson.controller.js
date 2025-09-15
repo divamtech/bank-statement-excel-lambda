@@ -38,7 +38,7 @@ const StatementToJsonController = {
       // Check if bank exists in BankENUM (case-insensitive)
       const bankKey = Object.keys(BankENUM).find((key) => BankENUM[key] === bank.toLowerCase())
       if (!bankKey) {
-        // await pushSQS(bank, resource_url)
+        await pushSQS(bank, resource_url)
         console.log('bankKeyE::', bankKey)
         return res.status(400).json({ flag: 0, message: 'BANK_NOT_FOUND' })
       }
