@@ -25,6 +25,17 @@ function processBankStatement(rawData) {
   function parseDate(dateString) {
     if (!dateString) return null
 
+    // If it's already a Date object, format it directly
+    if (dateString instanceof Date && !isNaN(dateString)) {
+      const year = dateString.getFullYear()
+      const month = String(dateString.getMonth() + 1).padStart(2, '0')
+      const day = String(dateString.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    // Convert to string for pattern matching
+    const dateStr = String(dateString)
+
     const formats = [
       /^\d{2}\/\d{2}\/\d{4}$/, // DD/MM/YYYY
       /^\d{2}-\w{3}-\d{4}$/, // DD-Mon-YYYY
@@ -58,9 +69,9 @@ function processBankStatement(rawData) {
     ]
 
     for (let i = 0; i < formats.length; i++) {
-      if (formats[i].test(dateString)) {
+      if (formats[i].test(dateStr)) {
         try {
-          const date = parsers[i](dateString)
+          const date = parsers[i](dateStr)
           if (!isNaN(date)) {
             const year = date.getFullYear()
             const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -74,8 +85,8 @@ function processBankStatement(rawData) {
     }
 
     // Try Excel date serial number (very basic)
-    const excelSerial = parseInt(dateString, 10)
-    if (!isNaN(excelSerial) && excelSerial > 0) {
+    const excelSerial = parseInt(dateStr, 10)
+    if (!isNaN(excelSerial) && excelSerial > 0 && excelSerial < 100000) {
       try {
         const excelEpoch = new Date(Date.UTC(1899, 11, 31))
         const date = new Date(excelEpoch.getTime() + excelSerial * 24 * 60 * 60 * 1000)
@@ -197,11 +208,7 @@ function processBankStatement(rawData) {
           const value = row[key]
           if (typeof value === 'string') {
             const lower = value.toLowerCase()
-            if (
-              lower.includes('ifsc') ||
-              lower.includes('ifs') ||
-              lower.includes('rtgs/neft ifsc')
-            ) {
+            if (lower.includes('ifsc') || lower.includes('ifs') || lower.includes('rtgs/neft ifsc')) {
               // Try after colon
               let afterColon = value.split(':')[1]
               if (afterColon) {
@@ -238,7 +245,7 @@ function processBankStatement(rawData) {
             const lower = trimmed.toLowerCase()
             // Heuristic: starts with a name prefix and is not a keyword
             if (
-              namePrefixes.some(prefix => lower.startsWith(prefix + ' ')) &&
+              namePrefixes.some((prefix) => lower.startsWith(prefix + ' ')) &&
               !lower.includes('account') &&
               !lower.includes('bank') &&
               !lower.includes('branch') &&
@@ -258,42 +265,79 @@ function processBankStatement(rawData) {
   }
 
   // 2. Header Row Identification & Key Mapping
-  for (let i = 0; i < rawData.length; i++) {
-    const row = rawData[i]
-    let dateFound = false
-    let narrationFound = false
-    let debitFound = false
-    let creditFound = false
-    let balanceFound = false
+  // Check if this is HDFC's specific format with __EMPTY columns
+  const firstDataRow = rawData.find((row) => row && Object.keys(row).length > 0)
+  const hasEmptyColumns = firstDataRow && Object.keys(firstDataRow).some((key) => key.includes('__EMPTY'))
 
-    for (const key in row) {
-      if (row.hasOwnProperty(key)) {
-        const value = row[key]
-        if (typeof value === 'string') {
-          const lowerValue = value.toLowerCase().trim()
-          if (lowerValue.includes('date')) {
-            keyMap.dateKey = key
-            dateFound = true
-          } else if (lowerValue.includes('narration') || lowerValue.includes('description') || lowerValue.includes('details')) {
-            keyMap.narrationKey = key
-            narrationFound = true
-          } else if (lowerValue.includes('withdrawal') || lowerValue.includes('debit')) {
-            keyMap.debitKey = key
-            debitFound = true
-          } else if (lowerValue.includes('deposit') || lowerValue.includes('credit')) {
-            keyMap.creditKey = key
-            creditFound = true
-          } else if (lowerValue.includes('balance') || lowerValue.includes('closing balance')) {
-            keyMap.balanceKey = key
-            balanceFound = true
+  if (hasEmptyColumns) {
+    const keys = Object.keys(firstDataRow)
+    keyMap.dateKey = keys[0] // First column is date
+    keyMap.narrationKey = keys[1] // __EMPTY is narration
+    keyMap.debitKey = keys[4] // __EMPTY_3 is withdrawal
+    keyMap.creditKey = keys[5] // __EMPTY_4 is deposit
+    keyMap.balanceKey = keys[6] // __EMPTY_5 is balance
+
+    // Find where actual transaction data starts (skip header/bank info rows)
+    for (let i = 0; i < rawData.length; i++) {
+      const row = rawData[i]
+      const dateValue = row[keyMap.dateKey]
+      const narrationValue = row[keyMap.narrationKey]
+
+      // Look for the first row with a valid date and narration that looks like a transaction
+      if (
+        dateValue instanceof Date &&
+        !isNaN(dateValue) &&
+        narrationValue &&
+        typeof narrationValue === 'string' &&
+        (narrationValue.includes('UPI') ||
+          narrationValue.includes('IMPS') ||
+          narrationValue.includes('NEFT') ||
+          narrationValue.includes('RTGS') ||
+          narrationValue.length > 10)
+      ) {
+        headerRowIndex = i - 1 // Set header before first transaction
+        break
+      }
+    }
+  } else {
+    // Original logic for standard format with proper column headers
+    for (let i = 0; i < rawData.length; i++) {
+      const row = rawData[i]
+      let dateFound = false
+      let narrationFound = false
+      let debitFound = false
+      let creditFound = false
+      let balanceFound = false
+
+      for (const key in row) {
+        if (row.hasOwnProperty(key)) {
+          const value = row[key]
+          if (typeof value === 'string') {
+            const lowerValue = value.toLowerCase().trim()
+            if (lowerValue === 'date' || (lowerValue.includes('date') && !lowerValue.includes('value') && !dateFound)) {
+              keyMap.dateKey = key
+              dateFound = true
+            } else if (lowerValue.includes('narration') || lowerValue.includes('description') || lowerValue.includes('details')) {
+              keyMap.narrationKey = key
+              narrationFound = true
+            } else if (lowerValue.includes('withdrawal') || lowerValue.includes('debit')) {
+              keyMap.debitKey = key
+              debitFound = true
+            } else if (lowerValue.includes('deposit') || lowerValue.includes('credit')) {
+              keyMap.creditKey = key
+              creditFound = true
+            } else if (lowerValue.includes('balance') || lowerValue.includes('closing balance')) {
+              keyMap.balanceKey = key
+              balanceFound = true
+            }
           }
         }
       }
-    }
 
-    if (dateFound && narrationFound && (debitFound || creditFound) && balanceFound) {
-      headerRowIndex = i
-      break
+      if (dateFound && narrationFound && (debitFound || creditFound)) {
+        headerRowIndex = i
+        break
+      }
     }
   }
 
@@ -301,16 +345,37 @@ function processBankStatement(rawData) {
   if (headerRowIndex !== -1) {
     for (let i = headerRowIndex + 1; i < rawData.length; i++) {
       const row = rawData[i]
-      if (!row || Object.keys(row).length === 0) continue // Skip empty rows
+      if (!row || Object.keys(row).length === 0) {
+        continue // Skip empty rows
+      }
 
       const dateString = row[keyMap.dateKey]
       const desc = row[keyMap.narrationKey] ? (row[keyMap.narrationKey] + '').trim() : null
       const debitValue = row[keyMap.debitKey]
       const creditValue = row[keyMap.creditKey]
-      const balanceValue = row[keyMap.balanceKey]
+      const balanceValue = keyMap.balanceKey ? row[keyMap.balanceKey] : null
+
       const date = parseDate(dateString)
 
-      if (!date || (!debitValue && !creditValue && debitValue !== 0 && creditValue !== 0) || !balanceValue) continue // Skip invalid transaction rows
+      // Skip if no valid date or no transaction amount
+      if (!date) {
+        continue
+      }
+
+      // Skip dates with year less than 2000 (invalid/incorrectly parsed dates)
+      const year = parseInt(date.split('-')[0])
+      if (year < 2000) {
+        continue
+      }
+
+      // Skip summary rows, footer rows, etc.
+      if (desc && (desc.includes('***') || desc.includes('End Of Statement') || desc.includes('STATEMENT SUMMARY') || desc.includes('Generated'))) {
+        continue
+      }
+
+      if (!debitValue && !creditValue && debitValue !== 0 && creditValue !== 0) {
+        continue
+      }
 
       let amount = null
       let type = null
@@ -330,9 +395,13 @@ function processBankStatement(rawData) {
         //At least one must exist and must be converted to a valid number to constitute a transaction
         continue
       }
-      const balValue = typeof balanceValue === 'number' ? balanceValue : parseFloat((balanceValue + '').replace(/[^0-9.-]+/g, ''))
 
-      if (isNaN(balValue)) continue //Skip rows where closing balance is not a number
+      // Balance is optional
+      let balValue = null
+      if (balanceValue !== null && balanceValue !== undefined) {
+        balValue = typeof balanceValue === 'number' ? balanceValue : parseFloat((balanceValue + '').replace(/[^0-9.-]+/g, ''))
+        if (isNaN(balValue)) balValue = null
+      }
 
       const { from, to } = extractFromDescription(desc)
 
