@@ -26,6 +26,9 @@ function processBankStatement(rawData) {
       return `${year}-${month}-${day}`
     }
 
+    // Convert to string for pattern matching
+    const dateStr = String(dateString).trim()
+
     // Attempt to parse various date formats
     const dateFormats = [
       { format: /(\d{2})\/(\d{2})\/(\d{4})/, order: [2, 1, 3] }, // DD/MM/YYYY
@@ -37,7 +40,7 @@ function processBankStatement(rawData) {
     ]
 
     for (const dateFormat of dateFormats) {
-      const match = dateString?.match(dateFormat.format)
+      const match = dateStr.match(dateFormat.format)
       if (match) {
         let year = match[dateFormat.order[2]]
         if (year.length === 2) {
@@ -195,7 +198,7 @@ function processBankStatement(rawData) {
     const creditString = row[keyMap.creditKey]
     const balanceString = row[keyMap.balanceKey]
 
-    const date = dateString
+    const date = parseDate(dateString)
     const debit = cleanAmount(debitString)
     const credit = cleanAmount(creditString)
     const balance = cleanAmount(balanceString)
