@@ -31,10 +31,10 @@ function processBankStatement(rawData) {
 
     // Attempt to parse various date formats
     const dateFormats = [
-      { format: /(\d{2})\/(\d{2})\/(\d{4})/, order: [2, 1, 3] }, // DD/MM/YYYY
+      { format: /(\d{2})\/(\d{2})\/(\d{4})/, order: [1, 2, 3] }, // DD/MM/YYYY
       { format: /(\d{2})-(\w+)-(\d{4})/, order: [1, 2, 3] }, // DD-Mon-YYYY
-      { format: /(\d{2})-(\d{2})-(\d{4})/, order: [2, 1, 3] }, // DD-MM-YYYY
-      { format: /(\d{2})\/(\d{2})\/(\d{2,4})/, order: [2, 1, 3] }, // DD/MM/YY or DD/MM/YYYY
+      { format: /(\d{2})-(\d{2})-(\d{4})/, order: [1, 2, 3] }, // DD-MM-YYYY
+      { format: /(\d{2})\/(\d{2})\/(\d{2,4})/, order: [1, 2, 3] }, // DD/MM/YY or DD/MM/YYYY
       { format: /(\d{4})-(\d{2})-(\d{2})/, order: [3, 2, 1] }, //YYYY-MM-DD
       { format: /(\d{2})-(\w{3})-(\d{2})/, order: [1, 2, 3] }, //DD-MON-YY
     ]
