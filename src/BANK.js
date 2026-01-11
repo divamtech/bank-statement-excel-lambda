@@ -9,6 +9,7 @@ const BANK = {
     YES: "yes",
     OVERSEASE: "oversease",
     KOTAK: "kotak",
+    KARNATAKA: "karnataka",
 }
 
 module.exports = BANK;
